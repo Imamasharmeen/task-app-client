@@ -19,7 +19,10 @@ export default function TaskManager() {
 
   // Initialize Socket.io
   useEffect(() => {
-    const socket = io("https://task-management-app-server-bay.vercel.app"); // Change to your backend URL
+    const socket = io("https://task-management-app-server-ruby.vercel.app", {
+      withCredentials: true,
+      transports: ["websocket"],  // You can specify transports for a more stable connection
+    });
     socket.on("taskAdded", (task) => updateTaskList(task, "add"));
     socket.on("taskUpdated", (task) => updateTaskList(task, "update"));
     socket.on("taskDeleted", (taskId) => updateTaskList(taskId, "delete"));
