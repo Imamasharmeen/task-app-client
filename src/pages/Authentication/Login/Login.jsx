@@ -33,33 +33,35 @@ const Login = () => {
   };
 
   return (
-    <div className="flex flex-col py-12 md:py-28 items-center justify-center text-center px-6">
-      {/* Text Section */}
+    <div className="flex flex-col py-12 md:py-28 items-center justify-center text-center px-6 bg-cover bg-center min-h-screen" 
+      style={{ backgroundImage: `url('https://img.freepik.com/premium-photo/gradient-full-color-background-jpg-fil_489510-34.jpg')` }}>
+
+   
       <motion.div
         initial={{ opacity: 0, y: -50 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
         className="mb-8"
       >
-        <h1 className="text-3xl md:text-4xl font-bold">
-          Welcome to Task Manager
+        <h1 className="text-3xl md:text-4xl font-bold text-white">
+          Your Personal Task Manager
         </h1>
-        <p className=" mt-3 text-lg">
-          Manage your tasks efficiently and stay productive.
+        <p className="mt-3 text-lg text-white">
+          Organize, prioritize, and track your tasks effortlessly with our intuitive platform.
         </p>
       </motion.div>
 
-      {/* Login Button */}
+    
       <motion.button
         onClick={handleGoogleLogin}
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
         whileHover={{ scale: 1.05 }}
-        className="bg-gradient-to-r from-blue-500 to-green-500 text-white w-full max-w-sm py-3 px-6 border border-transparent flex items-center justify-center gap-3 text-lg font-semibold shadow-lg transition-all duration-300 hover:from-blue-600 hover:to-green-600"
+        className="bg-green text-black w-full max-w-sm py-3 px-6 border border-transparent flex items-center justify-center gap-3 text-lg font-semibold shadow-lg transition-all duration-300 hover:from-blue-600 hover:to-green-600"
       >
         <FaGoogle className="text-xl" />
-        <span>Login with Google</span>
+        <span> Google LogIn</span>
       </motion.button>
     </div>
   );

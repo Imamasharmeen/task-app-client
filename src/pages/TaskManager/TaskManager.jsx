@@ -2,8 +2,9 @@ import { DragDropContext, Draggable, Droppable } from "@hello-pangea/dnd";
 import { useContext, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Swal from "sweetalert2";
+import { io } from "socket.io-client";
 import useAxios from "../../hooks/useAxios";
-import { AuthContext } from "./../../providers/AuthProvider";
+import { AuthContext } from "../../providers/AuthProvider";
 
 export default function TaskManager() {
   const { user } = useContext(AuthContext);
@@ -13,16 +14,52 @@ export default function TaskManager() {
     "In Progress": [],
     Done: [],
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Initialize Socket.io
+  useEffect(() => {
+    const socket = io("https://task-management-app-server-bay.vercel.app"); // Change to your backend URL
+    socket.on("taskAdded", (task) => updateTaskList(task, "add"));
+    socket.on("taskUpdated", (task) => updateTaskList(task, "update"));
+    socket.on("taskDeleted", (taskId) => updateTaskList(taskId, "delete"));
+
+    return () => socket.disconnect();
+  }, []);
+
+  const updateTaskList = (data, action) => {
+    setTasks((prev) => {
+      const updatedTasks = { ...prev };
+
+      if (action === "add") {
+        updatedTasks[data.category].push(data);
+      } else if (action === "update") {
+        Object.keys(updatedTasks).forEach((category) => {
+          updatedTasks[category] = updatedTasks[category].map((task) =>
+            task._id === data._id ? { ...task, ...data } : task
+          );
+        });
+      } else if (action === "delete") {
+        Object.keys(updatedTasks).forEach((category) => {
+          updatedTasks[category] = updatedTasks[category].filter(
+            (task) => task._id !== data
+          );
+        });
+      }
+      return updatedTasks;
+    });
+  };
 
   useEffect(() => {
     const fetchTasks = async () => {
+      setLoading(true);
       try {
         const res = await api.get(`/tasks?email=${user?.email}`);
         const categorizedTasks = { "To-Do": [], "In Progress": [], Done: [] };
 
         res.data.forEach((task) => {
-          const category = task.category ? task.category.trim() : "";
-          if (category in categorizedTasks) {
+          const category = task.category?.trim() || "To-Do";
+          if (categorizedTasks[category]) {
             categorizedTasks[category].push(task);
           }
         });
@@ -30,11 +67,13 @@ export default function TaskManager() {
         setTasks(categorizedTasks);
       } catch (error) {
         console.error("Error fetching tasks:", error);
+        setError("Failed to load tasks. Please try again.");
       }
+      setLoading(false);
     };
 
     fetchTasks();
-  }, []);
+  }, [user?.email]);
 
   const deleteTasks = async (id, category) => {
     const result = await Swal.fire({
@@ -63,6 +102,34 @@ export default function TaskManager() {
     }
   };
 
+  const handleEditTask = async (task) => {
+    const { value: formValues } = await Swal.fire({
+      title: "Edit Task",
+      html: `
+        <input id="swal-title" class="swal2-input" placeholder="Title" value="${task.title}">
+        <textarea id="swal-desc" class="swal2-textarea" placeholder="Description">${task.description}</textarea>
+      `,
+      focusConfirm: false,
+      showCancelButton: true,
+      preConfirm: () => {
+        return {
+          title: document.getElementById("swal-title").value,
+          description: document.getElementById("swal-desc").value,
+        };
+      },
+    });
+
+    if (formValues) {
+      try {
+        await api.put(`/tasks/${task._id}`, formValues);
+        updateTaskList({ ...task, ...formValues }, "update");
+        Swal.fire("Updated!", "Task updated successfully.", "success");
+      } catch (error) {
+        Swal.fire("Error!", "Failed to update task.", "error");
+      }
+    }
+  };
+
   const handleDragEnd = async (result) => {
     if (!result.destination) return;
 
@@ -70,102 +137,84 @@ export default function TaskManager() {
     const sourceCategory = source.droppableId;
     const destCategory = destination.droppableId;
 
-    if (sourceCategory === destCategory) {
-      const reorderedTasks = Array.from(tasks[sourceCategory]);
-      const [movedTask] = reorderedTasks.splice(source.index, 1);
-      reorderedTasks.splice(destination.index, 0, movedTask);
-      setTasks((prev) => ({ ...prev, [sourceCategory]: reorderedTasks }));
-    } else {
-      const sourceTasks = Array.from(tasks[sourceCategory]);
-      const destTasks = Array.from(tasks[destCategory]);
-      const [movedTask] = sourceTasks.splice(source.index, 1);
-      movedTask.category = destCategory;
-      destTasks.splice(destination.index, 0, movedTask);
+    const sourceTasks = [...tasks[sourceCategory]];
+    const destTasks = [...tasks[destCategory]];
+    const [movedTask] = sourceTasks.splice(source.index, 1);
+    movedTask.category = destCategory;
+    destTasks.splice(destination.index, 0, movedTask);
+
+    setTasks((prev) => ({
+      ...prev,
+      [sourceCategory]: sourceTasks,
+      [destCategory]: destTasks,
+    }));
+
+    try {
+      await api.put(`/tasks/${movedTask._id}`, { category: destCategory });
+    } catch (error) {
+      Swal.fire("Error!", "Failed to move task.", "error");
       setTasks((prev) => ({
         ...prev,
-        [sourceCategory]: sourceTasks,
-        [destCategory]: destTasks,
+        [sourceCategory]: [...prev[sourceCategory], movedTask],
+        [destCategory]: prev[destCategory].filter((t) => t._id !== movedTask._id),
       }));
-
-      await api.put(`/tasks/${movedTask._id}`, { category: destCategory });
     }
   };
 
   const categoryColors = {
-    "To-Do": "bg-[#569FB2] border-blue-700",
-    "In Progress": "bg-[#86D7B7] border-yellow-700",
-    Done: "bg-green-500 border-green-700",
+    "To-Do": "bg-blue-400",
+    "In Progress": "bg-yellow-400",
+    Done: "bg-green-500",
   };
 
   return (
-    <div className="w-11/12 mx-auto min-h-screen py-6 md:py-12  text-black">
-      <DragDropContext onDragEnd={handleDragEnd}>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {Object.keys(tasks).map((category) => (
-            <Droppable key={category} droppableId={category}>
-              {(provided) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  className={`p-5 rounded-xl shadow-lg min-h-[250px] border backdrop-blur-lg bg-opacity-80 ${categoryColors[category]}`}
-                >
-                  <h2 className="text-xl font-bold mb-4 uppercase tracking-wide text-black">
-                    {category}
-                  </h2>
-                  {tasks[category].map((task, index) => (
-                    <Draggable
-                      key={task._id}
-                      draggableId={task._id.toString()}
-                      index={index}
-                    >
-                      {(provided) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                          className="mb-4 p-4 rounded-xl border border-gray-600 shadow-md backdrop-blur-md bg-white bg-opacity-10 hover:bg-opacity-20 transition-all duration-300"
-                        >
-                          <h3 className="text-lg font-semibold mb-1 text-black">
-                            {task?.title}
-                          </h3>
-                          <p className="text-black mb-2">{task?.description}</p>
-                          <p className="text-sm text-black">
-                            Created: {new Date(task.timestamp).toLocaleString()}
-                          </p>
-                          <div className="mt-3 flex gap-3">
-                            <Link
-                              to="/edit-tasks"
-                              state={{
-                                editTask: {
-                                  title: task.title,
-                                  description: task.description,
-                                  timestamp: task.timestamp,
-                                  category: task.category,
-                                  id: task?._id,
-                                },
-                              }}
-                              className="bg-gray-200 text-black px-4 py-2 rounded-lg font-medium hover:bg-yellow-600 transition"
-                            >
-                              ✏
-                            </Link>
-                            <button
-                              onClick={() => deleteTasks(task._id, category)}
-                              className="bg-red-300 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 transition"
-                            >
-                              🗑
-                            </button>
+    <div className="w-11/12 mx-auto min-h-screen py-6 text-black">
+      {loading ? (
+        <p className="text-center text-xl font-bold">Loading tasks...</p>
+      ) : error ? (
+        <p className="text-center text-red-500">{error}</p>
+      ) : (
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Object.keys(tasks).map((category) => (
+              <Droppable key={category} droppableId={category}>
+                {(provided) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    className={`p-5 rounded-xl shadow-lg min-h-[250px] border ${categoryColors[category]}`}
+                  >
+                    <h2 className="text-xl font-bold mb-4 uppercase">{category}</h2>
+                    {tasks[category].map((task, index) => (
+                      <Draggable key={task._id} draggableId={task._id} index={index}>
+                        {(provided) => (
+                          <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps}
+                            className="mb-4 p-4 rounded-xl border bg-white">
+                            <h3 className="text-lg font-semibold">{task.title}</h3>
+                            <p>{task.description}</p>
+
+                            <div className="flex gap-3 mt-3">
+                              <button onClick={() => handleEditTask(task)}
+                                className="bg-blue-500 text-white px-4 py-2 rounded-lg">
+                                Edit
+                              </button>
+                              <button onClick={() => deleteTasks(task._id, category)}
+                                className="bg-red-500 text-white px-4 py-2 rounded-lg">
+                                Delete
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          ))}
-        </div>
-      </DragDropContext>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            ))}
+          </div>
+        </DragDropContext>
+      )}
     </div>
   );
 }
